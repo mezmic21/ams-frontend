@@ -372,7 +372,7 @@ export default function EnrollFacePage() {
                     <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
                         RFID Card UID
                     </label>
-                    <input type="text" placeholder="e.g. A1B2C3D4"
+                    <input type="text" placeholder="e.g. 5401234"
                     value={rfidUid} onChange={(e) => setRfidUid(e.target.value)}
                     style={inputStyle}/>
                 </div>
@@ -426,13 +426,7 @@ export default function EnrollFacePage() {
               {submitting ? "Submitting..." : "Enroll Face"}
             </button>
 
-            <div className="mt-4 p-3 rounded-xl"
-              style={{ background: isDark ? "#0d1b4b" : "#eff6ff", border: `1px solid ${isDark ? "#1e3a6e" : "#bfdbfe"}` }}>
-              <p className="text-xs" style={{ color: t.textAccent }}>
-                ℹ️ Make sure the encoding worker script is running on the partner machine
-                before submitting — it processes the photo into a face vector.
-              </p>
-            </div>
+
           </div>
         )}
       </div>
