@@ -273,7 +273,7 @@ export default function EnrollFacePage() {
               {cameraActive && (
                 <div className="relative">
                   <video ref={videoRef} autoPlay playsInline
-                    className="w-full rounded-xl" style={{ background: "#000" }}/>
+                    className="w-full rounded-xl" style={{ background: "#000", transform: "scaleX(-1)" }}/>
                   <div className="flex gap-3 mt-3">
                     <button onClick={capturePhoto}
                       className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white"
