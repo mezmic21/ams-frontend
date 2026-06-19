@@ -40,13 +40,16 @@ export default function EnrollFacePage() {
     setName(storedName);
   }, []);
 
+  useEffect(() => {
+    if (cameraActive && videoRef.current && streamRef.current) {
+    videoRef.current.srcObject = streamRef.current;
+    }
+  }, [cameraActive]);
+
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
       setCameraActive(true);
     } catch (err) {
       setStatusType("error");
