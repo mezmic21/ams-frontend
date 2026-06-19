@@ -28,8 +28,7 @@ export default function EnrollFacePage() {
   // Submission
   const [submitting, setSubmitting] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
-  const [statusType, setStatusType] = useState<"idle" | "uploading" | "processing" | "success" | "error">("idle");
-  const [requestId, setRequestId] = useState<string | null>(null);
+  const [statusType, setStatusType] = useState<"idle" | "success" | "error">("idle");
 
   useEffect(() => {
     const storedName = localStorage.getItem("name");
@@ -40,28 +39,6 @@ export default function EnrollFacePage() {
     }
     setName(storedName);
   }, []);
-
-  // Poll for status if processing
-  useEffect(() => {
-    if (statusType !== "processing" || !requestId) return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await API.get(`/enrollment/status/${requestId}`);
-        if (res.data.status === "completed") {
-          setStatusType("success");
-          setStatusMsg(`${studentName} has been enrolled successfully! The Pi will recognize them after the next preload.`);
-          clearInterval(interval);
-        } else if (res.data.status === "failed") {
-          setStatusType("error");
-          setStatusMsg("Face processing failed. Make sure exactly one clear face is visible in the photo.");
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [statusType, requestId]);
 
   const startCamera = async () => {
     try {
@@ -123,8 +100,8 @@ export default function EnrollFacePage() {
     }
 
     setSubmitting(true);
-    setStatusType("uploading");
-    setStatusMsg("Uploading photo...");
+    setStatusType("idle");
+    setStatusMsg("");
 
     const formData = new FormData();
     formData.append("name", studentName);
@@ -140,15 +117,11 @@ export default function EnrollFacePage() {
       const res = await API.post("/enrollment/request", formData, {
         headers: { "Content-Type": "multipart/form-data" }
       });
-      setRequestId(res.data.request_id);
-      setStatusType("processing");
-      setStatusMsg(
-        `Photo uploaded for ${res.data.user_name}. Waiting for face processing... ` +
-        `Make sure the encoding worker is running on the other machine.`
-      );
+      setStatusType("success");
+      setStatusMsg(res.data.message || `${res.data.user_name} enrolled successfully!`);
     } catch (err: any) {
       setStatusType("error");
-      setStatusMsg(err.response?.data?.detail || "Something went wrong.");
+      setStatusMsg(err.response?.data?.detail || "Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -163,7 +136,6 @@ export default function EnrollFacePage() {
     setPhotoPreview(null);
     setStatusType("idle");
     setStatusMsg("");
-    setRequestId(null);
   };
 
   const t = isDark ? {
@@ -249,28 +221,16 @@ export default function EnrollFacePage() {
         {statusType !== "idle" && (
           <div className="mb-6 p-4 rounded-xl flex items-start gap-3"
             style={{
-              background: statusType === "success" ? (isDark ? "#0f2d1f" : "#f0fdf4")
-                : statusType === "error" ? (isDark ? "#2d0f0f" : "#fef2f2")
-                : (isDark ? "#1a1200" : "#fffbeb"),
-              border: `1px solid ${statusType === "success" ? "#10b981" : statusType === "error" ? "#ef4444" : "#f59e0b"}`
+              background: statusType === "success" ? (isDark ? "#0f2d1f" : "#f0fdf4") : (isDark ? "#2d0f0f" : "#fef2f2"),
+              border: `1px solid ${statusType === "success" ? "#10b981" : "#ef4444"}`
             }}>
-            <span className="text-xl">
-              {statusType === "success" ? "✅" : statusType === "error" ? "❌" : statusType === "processing" ? "⏳" : "📤"}
-            </span>
+            <span className="text-xl">{statusType === "success" ? "✅" : "❌"}</span>
             <div className="flex-1">
-              <p className="text-sm" style={{
-                color: statusType === "success" ? "#10b981" : statusType === "error" ? "#ef4444" : "#f59e0b"
-              }}>
+              <p className="text-sm" style={{ color: statusType === "success" ? "#10b981" : "#ef4444" }}>
                 {statusMsg}
               </p>
-              {statusType === "processing" && (
-                <div className="mt-2 flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full border-2 border-amber-500 border-t-transparent animate-spin"/>
-                  <span className="text-xs" style={{ color: t.textMuted }}>Waiting for response...</span>
-                </div>
-              )}
             </div>
-            {(statusType === "success" || statusType === "error") && (
+            {statusType === "success" && (
               <button onClick={resetForm}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium"
                 style={{ background: t.cardBg, color: t.textAccent, border: `1px solid ${t.cardBorder}` }}>
@@ -359,74 +319,67 @@ export default function EnrollFacePage() {
                   value={studentEmail} onChange={(e) => setStudentEmail(e.target.value)}
                   style={inputStyle}/>
               </div>
-            <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                    <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
+                  <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
                     Student ID
-                    </label>
-                    <input type="text" placeholder="e.g. 240XXXX"
+                  </label>
+                  <input type="text" placeholder="e.g. 240XXXX"
                     value={studentId} onChange={(e) => setStudentId(e.target.value)}
                     style={inputStyle}/>
                 </div>
                 <div>
-                    <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                        RFID Card UID
-                    </label>
-                    <input type="text" placeholder="e.g. 5401234"
+                  <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
+                    RFID Card UID
+                  </label>
+                  <input type="text" placeholder="Tap card or type UID"
                     value={rfidUid} onChange={(e) => setRfidUid(e.target.value)}
                     style={inputStyle}/>
                 </div>
-            </div>
+              </div>
 
-            <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                    <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
+                  <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
                     Faculty
-                    </label>
-                    <select value={faculty} onChange={(e) => setFaculty(e.target.value)} style={inputStyle}>
-                        <option value="Engineering">Engineering</option>
-                        <option value="Architecture">Architecture</option>
-                        <option value="Medicine">Medicine</option>
-                        <option value="Information Technology">Information Technology</option>
-                        <option value="Business">Business</option>
-                    </select>
+                  </label>
+                  <select value={faculty} onChange={(e) => setFaculty(e.target.value)} style={inputStyle}>
+                    <option value="Engineering">Engineering</option>
+                    <option value="Architecture">Architecture (future)</option>
+                    <option value="Medicine">Medicine (future)</option>
+                    <option value="Information Technology">Information Technology (future)</option>
+                    <option value="Business">Business (future)</option>
+                  </select>
                 </div>
                 <div>
-                    <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
+                  <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
                     Department
-                    </label>
-                    <select value={department} onChange={(e) => setDepartment(e.target.value)} style={inputStyle}>
-                        <option value="Mechanical Engineering">Mechanical Engineering</option>
-                        <option value="Computer Science & Engineering">Computer Science & Engineering</option>
-                        <option value="Electrical Engineering">Electrical Engineering</option>
-                        <option value="Electronic & Telecommunication">Electronic & Telecom</option>
-                        <option value="Civil Engineering">Civil Engineering</option>
-                        <option value="Chemical Engineering">Chemical Engineering</option>
-                        <option value="Textile & Apparel Engineering">Textile & Apparel Engineering</option>
-                        <option value="Earth Resource Engineering">Earth Resource Engineering</option>
-                        <option value="Transport Management & Logistic Engineering">Transport Management & Logistic Engineering</option>
-                        <option value="Fashion Designing & Product Development">Fashion Designing & Product Development</option>
-                    </select>
+                  </label>
+                  <select value={department} onChange={(e) => setDepartment(e.target.value)} style={inputStyle}>
+                    <option value="Mechanical Engineering">Mechanical Engineering</option>
+                    <option value="Computer Science & Engineering">Computer Science (future)</option>
+                    <option value="Electrical Engineering">Electrical Engineering (future)</option>
+                    <option value="Electronic & Telecommunication">Electronic & Telecom (future)</option>
+                    <option value="Civil Engineering">Civil Engineering (future)</option>
+                  </select>
                 </div>
-            </div>
+              </div>
 
-            <div>
+              <div>
                 <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                    Batch
+                  Batch
                 </label>
-                <input type="text" placeholder="e.g. 24"
-                    value={batch} onChange={(e) => setBatch(e.target.value)}
-                    style={inputStyle}/>
+                <input type="text" placeholder="e.g. ME Batch 24"
+                  value={batch} onChange={(e) => setBatch(e.target.value)}
+                  style={inputStyle}/>
+              </div>
             </div>
-        </div>
 
             <button onClick={handleSubmit} disabled={submitting}
               className="w-full mt-6 py-3 rounded-xl text-sm font-semibold text-white transition-all"
               style={{ background: "#2563eb", opacity: submitting ? 0.7 : 1 }}>
-              {submitting ? "Submitting..." : "Enroll Face"}
+              {submitting ? "Processing..." : "Enroll Face"}
             </button>
-
-
           </div>
         )}
       </div>
