@@ -17,13 +17,28 @@ export default function LoginPage() {
       const res = await API.post(
         `/auth/login?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`
       );
-      localStorage.setItem("token", res.data.access_token);
-      localStorage.setItem("role", res.data.role);
-      localStorage.setItem("name", res.data.name);
+      const data = res.data as {
+        access_token: string;
+        role: string;
+        name: string;
+        must_change_password: boolean;
+      };
 
-      if (res.data.role === "student") router.push("/dashboard/student");
-      else if (res.data.role === "lecturer") router.push("/dashboard/lecturer");
-      else if (res.data.role === "admin") router.push("/dashboard/admin/select");
+      localStorage.setItem("token", data.access_token);
+      localStorage.setItem("role", data.role);
+      localStorage.setItem("name", data.name);
+      localStorage.setItem("must_change_password", data.must_change_password ? "true" : "false");
+
+      if (data.must_change_password) {
+        router.push("/dashboard/change-password");
+      } else if (data.role === "student") {
+        router.push("/dashboard/student");
+      } else if (data.role === "lecturer") {
+        router.push("/dashboard/lecturer");
+      } else if (data.role === "admin") {
+        router.push("/dashboard/admin/select");
+      }
+      
     } catch (err) {
       setError("Invalid email or password");
     } finally {

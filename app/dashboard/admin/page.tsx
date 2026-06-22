@@ -232,7 +232,14 @@ const [pendingOverrides, setPendingOverrides] = useState([]);
           >
             ← Back
           </button>
-
+          <button
+            onClick={() => router.push("/dashboard/change-password")}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+            style={{ background: t.cardBg, color: t.textMuted, border: `1px solid ${t.cardBorder}` }}
+          >
+            🔑 Password
+          </button>
+          
           <button
             onClick={handleLogout}
             className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
