@@ -3,19 +3,39 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import API from "@/lib/api";
 
+type DetectedRole = "student" | "lecturer" | "admin" | null;
+
+function detectRole(index: string): DetectedRole {
+  if (/^\d+[A-Za-z]$/.test(index)) return "student";
+  if (/^adm\d+$/i.test(index)) return "admin";
+  if (/^lec\d+$/i.test(index)) return "lecturer";
+  return null;
+}
+
 export default function EnrollFacePage() {
   const router = useRouter();
-  const [name, setName] = useState("");
+  const [adminName, setAdminName] = useState("");
   const [isDark, setIsDark] = useState(true);
 
-  // Form fields
-  const [studentName, setStudentName] = useState("");
-  const [studentEmail, setStudentEmail] = useState("");
-  const [studentId, setStudentId] = useState("");
+  // Step 1 fields — always visible
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [indexNumber, setIndexNumber] = useState("");
+  const [detectedRole, setDetectedRole] = useState<DetectedRole>(null);
+
+  // Common fields — visible once role detected
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [rfidUid, setRfidUid] = useState("");
-  const [faculty, setFaculty] = useState("Engineering");
-  const [department, setDepartment] = useState("Mechanical Engineering");
+
+  // Student-specific
   const [batch, setBatch] = useState("ME Batch 24");
+
+  // Admin-specific
+  const [adminDepartment, setAdminDepartment] = useState("");
+
+  // Lecturer-specific
+  const [lecturerFaculty, setLecturerFaculty] = useState("Engineering");
+  const [lecturerDepartment, setLecturerDepartment] = useState("Mechanical Engineering");
 
   // Photo
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
@@ -37,21 +57,27 @@ export default function EnrollFacePage() {
       router.push("/");
       return;
     }
-    setName(storedName);
+    setAdminName(storedName);
   }, []);
 
+  // Attach stream after video element mounts
   useEffect(() => {
     if (cameraActive && videoRef.current && streamRef.current) {
-    videoRef.current.srcObject = streamRef.current;
+      videoRef.current.srcObject = streamRef.current;
     }
   }, [cameraActive]);
+
+  // Auto-detect role as index is typed
+  useEffect(() => {
+    setDetectedRole(detectRole(indexNumber));
+  }, [indexNumber]);
 
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       streamRef.current = stream;
       setCameraActive(true);
-    } catch (err) {
+    } catch {
       setStatusType("error");
       setStatusMsg("Could not access camera. Please check permissions or use file upload instead.");
     }
@@ -59,7 +85,7 @@ export default function EnrollFacePage() {
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
     setCameraActive(false);
@@ -71,8 +97,7 @@ export default function EnrollFacePage() {
     const canvas = canvasRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx?.drawImage(video, 0, 0);
+    canvas.getContext("2d")?.drawImage(video, 0, 0);
     canvas.toBlob((blob) => {
       if (blob) {
         setPhotoBlob(blob);
@@ -96,9 +121,9 @@ export default function EnrollFacePage() {
   };
 
   const handleSubmit = async () => {
-    if (!studentName || !studentEmail || !photoBlob) {
+    if (!name || !email || !indexNumber || !detectedRole || !photoBlob) {
       setStatusType("error");
-      setStatusMsg("Please fill in name, email, and provide a photo.");
+      setStatusMsg("Please complete all required fields and provide a photo.");
       return;
     }
 
@@ -107,18 +132,28 @@ export default function EnrollFacePage() {
     setStatusMsg("");
 
     const formData = new FormData();
-    formData.append("name", studentName);
-    formData.append("email", studentEmail);
-    if (studentId) formData.append("student_id", studentId);
+    formData.append("name", name);
+    formData.append("email", email);
+    formData.append("role", detectedRole);
+    formData.append("index_number", indexNumber);
+    if (phoneNumber) formData.append("phone_number", phoneNumber);
     if (rfidUid) formData.append("rfid_uid", rfidUid);
-    formData.append("faculty", faculty);
-    formData.append("department", department);
-    if (batch) formData.append("batch", batch);
+
+    if (detectedRole === "student") {
+      if (batch) formData.append("batch", batch);
+      formData.append("student_id", indexNumber);
+    } else if (detectedRole === "admin") {
+      if (adminDepartment) formData.append("admin_department", adminDepartment);
+    } else if (detectedRole === "lecturer") {
+      if (lecturerFaculty) formData.append("lecturer_faculty", lecturerFaculty);
+      if (lecturerDepartment) formData.append("lecturer_department", lecturerDepartment);
+    }
+
     formData.append("photo", photoBlob, "photo.jpg");
 
     try {
       const res = await API.post("/enrollment/request", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
+        headers: { "Content-Type": "multipart/form-data" },
       });
       setStatusType("success");
       setStatusMsg(res.data.message || `${res.data.user_name} enrolled successfully!`);
@@ -131,14 +166,12 @@ export default function EnrollFacePage() {
   };
 
   const resetForm = () => {
-    setStudentName("");
-    setStudentEmail("");
-    setStudentId("");
-    setRfidUid("");
-    setPhotoBlob(null);
-    setPhotoPreview(null);
-    setStatusType("idle");
-    setStatusMsg("");
+    setName(""); setEmail(""); setIndexNumber(""); setDetectedRole(null);
+    setPhoneNumber(""); setRfidUid(""); setBatch("ME Batch 24");
+    setAdminDepartment(""); setLecturerFaculty("Engineering");
+    setLecturerDepartment("Mechanical Engineering");
+    setPhotoBlob(null); setPhotoPreview(null);
+    setStatusType("idle"); setStatusMsg("");
   };
 
   const t = isDark ? {
@@ -147,24 +180,31 @@ export default function EnrollFacePage() {
     textPrimary: "#ffffff", textSecondary: "#94a3b8", textMuted: "#64748b",
     textAccent: "#60a5fa", inputBg: "#0d1b4b", inputBorder: "#1e3a6e",
     roleBg: "#3b1764", roleText: "#c084fc",
+    studentBg: "#0f2d1f", studentBorder: "#10b981", studentText: "#10b981",
+    lecturerBg: "#1e3a6e", lecturerBorder: "#60a5fa", lecturerText: "#60a5fa",
+    adminBg: "#3b1764", adminBorder: "#c084fc", adminText: "#c084fc",
   } : {
     pageBg: "#f1f5f9", navBg: "#ffffff", navBorder: "#e2e8f0",
     cardBg: "#ffffff", cardBorder: "#e2e8f0",
     textPrimary: "#0f172a", textSecondary: "#334155", textMuted: "#64748b",
     textAccent: "#2563eb", inputBg: "#f8fafc", inputBorder: "#cbd5e1",
     roleBg: "#f3e8ff", roleText: "#7e22ce",
+    studentBg: "#f0fdf4", studentBorder: "#10b981", studentText: "#15803d",
+    lecturerBg: "#eff6ff", lecturerBorder: "#2563eb", lecturerText: "#1d4ed8",
+    adminBg: "#f3e8ff", adminBorder: "#7e22ce", adminText: "#7e22ce",
   };
 
   const inputStyle = {
-    background: t.inputBg,
-    border: `1px solid ${t.inputBorder}`,
-    color: t.textPrimary,
-    borderRadius: "10px",
-    padding: "10px 14px",
-    width: "100%",
-    fontSize: "14px",
-    outline: "none",
+    background: t.inputBg, border: `1px solid ${t.inputBorder}`,
+    color: t.textPrimary, borderRadius: "10px", padding: "10px 14px",
+    width: "100%", fontSize: "14px", outline: "none",
   };
+
+  const roleBadge = detectedRole ? {
+    student: { bg: t.studentBg, border: t.studentBorder, text: t.studentText, label: "👤 Student", hint: "Batch, RFID, phone required" },
+    lecturer: { bg: t.lecturerBg, border: t.lecturerBorder, text: t.lecturerText, label: "🎓 Lecturer", hint: "Faculty, department, RFID, phone required" },
+    admin: { bg: t.adminBg, border: t.adminBorder, text: t.adminText, label: "🛡️ Admin", hint: "Administration department, RFID, phone required" },
+  }[detectedRole] : null;
 
   return (
     <div className="min-h-screen transition-all duration-300" style={{ background: t.pageBg }}>
@@ -182,7 +222,7 @@ export default function EnrollFacePage() {
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <p className="text-sm font-medium" style={{ color: t.textPrimary }}>{name}</p>
+            <p className="text-sm font-medium" style={{ color: t.textPrimary }}>{adminName}</p>
             <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: t.roleBg, color: t.roleText }}>Admin</span>
           </div>
           <button onClick={() => setIsDark(!isDark)}
@@ -212,11 +252,9 @@ export default function EnrollFacePage() {
 
       <div className="max-w-2xl mx-auto px-6 py-8">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold" style={{ color: t.textPrimary }}>
-            Enroll New Face
-          </h1>
+          <h1 className="text-2xl font-bold" style={{ color: t.textPrimary }}>Enroll New Member</h1>
           <p className="text-sm mt-1" style={{ color: t.textMuted }}>
-            Register a new person for facial recognition access
+            Register a student, lecturer, or admin for facial recognition access
           </p>
         </div>
 
@@ -247,142 +285,199 @@ export default function EnrollFacePage() {
           <div className="rounded-2xl p-6 transition-all duration-300"
             style={{ background: t.cardBg, border: `1px solid ${t.cardBorder}` }}>
 
-            {/* Photo capture/upload */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                Photo
-              </label>
-
-              {!photoPreview && !cameraActive && (
-                <div className="flex gap-3">
-                  <button onClick={startCamera}
-                    className="flex-1 py-8 rounded-xl flex flex-col items-center gap-2 transition-all"
-                    style={{ background: t.inputBg, border: `1px dashed ${t.inputBorder}`, color: t.textAccent }}>
-                    <span className="text-2xl">📷</span>
-                    <span className="text-sm font-medium">Use Webcam</span>
-                  </button>
-                  <label className="flex-1 py-8 rounded-xl flex flex-col items-center gap-2 cursor-pointer transition-all"
-                    style={{ background: t.inputBg, border: `1px dashed ${t.inputBorder}`, color: t.textAccent }}>
-                    <span className="text-2xl">📁</span>
-                    <span className="text-sm font-medium">Upload Photo</span>
-                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden"/>
-                  </label>
-                </div>
-              )}
-
-              {cameraActive && (
-                <div className="relative">
-                  <video ref={videoRef} autoPlay playsInline
-                    className="w-full rounded-xl" style={{ background: "#000", transform: "scaleX(-1)" }}/>
-                  <div className="flex gap-3 mt-3">
-                    <button onClick={capturePhoto}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white"
-                      style={{ background: "#2563eb" }}>
-                      📸 Capture
-                    </button>
-                    <button onClick={stopCamera}
-                      className="px-4 py-2.5 rounded-xl text-sm font-medium"
-                      style={{ background: t.inputBg, color: t.textMuted, border: `1px solid ${t.inputBorder}` }}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {photoPreview && (
-                <div className="relative">
-                  <img src={photoPreview} alt="Preview"
-                    className="w-full rounded-xl max-h-80 object-cover"/>
-                  <button onClick={retake}
-                    className="mt-3 w-full py-2 rounded-xl text-sm font-medium"
-                    style={{ background: t.inputBg, color: t.textMuted, border: `1px solid ${t.inputBorder}` }}>
-                    Retake / Choose Different Photo
-                  </button>
-                </div>
-              )}
-
-              <canvas ref={canvasRef} className="hidden"/>
-            </div>
-
-            {/* Form fields */}
-            <div className="space-y-4">
+            {/* Step 1 — always visible */}
+            <p className="text-xs font-bold mb-3 tracking-widest" style={{ color: t.textMuted }}>
+              STEP 1 — IDENTITY
+            </p>
+            <div className="space-y-4 mb-6">
               <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                  Full Name *
-                </label>
+                <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>Full Name *</label>
                 <input type="text" placeholder="e.g. Saman Kumara"
-                  value={studentName} onChange={(e) => setStudentName(e.target.value)}
-                  style={inputStyle}/>
+                  value={name} onChange={e => setName(e.target.value)} style={inputStyle}/>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                  Email *
-                </label>
+                <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>Email *</label>
                 <input type="email" placeholder="e.g. samank.24@uom.lk"
-                  value={studentEmail} onChange={(e) => setStudentEmail(e.target.value)}
-                  style={inputStyle}/>
+                  value={email} onChange={e => setEmail(e.target.value)} style={inputStyle}/>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                    Student ID
-                  </label>
-                  <input type="text" placeholder="e.g. 240XXXX"
-                    value={studentId} onChange={(e) => setStudentId(e.target.value)}
-                    style={inputStyle}/>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                    RFID Card UID
-                  </label>
-                  <input type="text" placeholder="Tap card or type UID"
-                    value={rfidUid} onChange={(e) => setRfidUid(e.target.value)}
-                    style={inputStyle}/>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                    Faculty
-                  </label>
-                  <select value={faculty} onChange={(e) => setFaculty(e.target.value)} style={inputStyle}>
-                    <option value="Engineering">Engineering</option>
-                    <option value="Architecture">Architecture (future)</option>
-                    <option value="Medicine">Medicine (future)</option>
-                    <option value="Information Technology">Information Technology (future)</option>
-                    <option value="Business">Business (future)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                    Department
-                  </label>
-                  <select value={department} onChange={(e) => setDepartment(e.target.value)} style={inputStyle}>
-                    <option value="Mechanical Engineering">Mechanical Engineering</option>
-                    <option value="Computer Science & Engineering">Computer Science (future)</option>
-                    <option value="Electrical Engineering">Electrical Engineering (future)</option>
-                    <option value="Electronic & Telecommunication">Electronic & Telecom (future)</option>
-                    <option value="Civil Engineering">Civil Engineering (future)</option>
-                  </select>
-                </div>
-              </div>
-
               <div>
                 <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
-                  Batch
+                  Index Number *
+                  <span className="ml-2 font-normal text-xs" style={{ color: t.textMuted }}>
+                    (e.g. 240484B for student, lec042 for lecturer, adm001 for admin)
+                  </span>
                 </label>
-                <input type="text" placeholder="e.g. ME Batch 24"
-                  value={batch} onChange={(e) => setBatch(e.target.value)}
-                  style={inputStyle}/>
+                <input type="text" placeholder="Enter index number"
+                  value={indexNumber} onChange={e => setIndexNumber(e.target.value)} style={inputStyle}/>
+
+                {/* Role detection badge */}
+                {indexNumber && (
+                  <div className="mt-2 px-3 py-2 rounded-lg text-xs font-medium"
+                    style={{
+                      background: roleBadge ? roleBadge.bg : isDark ? "#2d0f0f" : "#fef2f2",
+                      border: `1px solid ${roleBadge ? roleBadge.border : "#ef4444"}`,
+                      color: roleBadge ? roleBadge.text : "#ef4444",
+                    }}>
+                    {roleBadge ? (
+                      <span>{roleBadge.label} detected — {roleBadge.hint}</span>
+                    ) : (
+                      <span>⚠️ Index format not recognized — check the format above</span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
-            <button onClick={handleSubmit} disabled={submitting}
-              className="w-full mt-6 py-3 rounded-xl text-sm font-semibold text-white transition-all"
-              style={{ background: "#2563eb", opacity: submitting ? 0.7 : 1 }}>
-              {submitting ? "Processing..." : "Enroll Face"}
-            </button>
+            {/* Step 2 — role-specific fields, revealed once role is detected */}
+            {detectedRole && (
+              <>
+                <div className="mb-4 border-t pt-5" style={{ borderColor: t.cardBorder }}>
+                  <p className="text-xs font-bold mb-3 tracking-widest" style={{ color: t.textMuted }}>
+                    STEP 2 — {detectedRole.toUpperCase()} DETAILS
+                  </p>
+                </div>
+
+                <div className="space-y-4 mb-6">
+                  {/* Common fields for all roles */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
+                        Phone Number
+                      </label>
+                      <input type="tel" placeholder="e.g. 0771234567"
+                        value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} style={inputStyle}/>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
+                        RFID Card UID
+                      </label>
+                      <input type="text" placeholder="Tap card or type UID"
+                        value={rfidUid} onChange={e => setRfidUid(e.target.value)} style={inputStyle}/>
+                    </div>
+                  </div>
+
+                  {/* Student-specific */}
+                  {detectedRole === "student" && (
+                    <div>
+                      <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>Batch</label>
+                      <input type="text" placeholder="e.g. ME Batch 24"
+                        value={batch} onChange={e => setBatch(e.target.value)} style={inputStyle}/>
+                    </div>
+                  )}
+
+                  {/* Lecturer-specific */}
+                  {detectedRole === "lecturer" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>Faculty</label>
+                        <select value={lecturerFaculty} onChange={e => setLecturerFaculty(e.target.value)} style={inputStyle}>
+                          <option value="Engineering">Engineering</option>
+                          <option value="Architecture">Architecture</option>
+                          <option value="Medicine">Medicine</option>
+                          <option value="Information Technology">Information Technology</option>
+                          <option value="Business">Business</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>Department</label>
+                        <select value={lecturerDepartment} onChange={e => setLecturerDepartment(e.target.value)} style={inputStyle}>
+                          <option value="Mechanical Engineering">Mechanical Engineering</option>
+                          <option value="Computer Science & Engineering">Computer Science</option>
+                          <option value="Electrical Engineering">Electrical Engineering</option>
+                          <option value="Electronic & Telecommunication">Electronic & Telecom</option>
+                          <option value="Civil Engineering">Civil Engineering</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Admin-specific */}
+                  {detectedRole === "admin" && (
+                    <div>
+                      <label className="block text-sm font-medium mb-2" style={{ color: t.textSecondary }}>
+                        Administration Department
+                      </label>
+                      <input type="text" placeholder="e.g. Faculty Office, Registry, IT Division"
+                        value={adminDepartment} onChange={e => setAdminDepartment(e.target.value)} style={inputStyle}/>
+                    </div>
+                  )}
+                </div>
+
+                {/* Step 3 — Photo */}
+                <div className="border-t pt-5 mb-6" style={{ borderColor: t.cardBorder }}>
+                  <p className="text-xs font-bold mb-3 tracking-widest" style={{ color: t.textMuted }}>
+                    STEP 3 — PHOTO
+                  </p>
+
+                  {!photoPreview && !cameraActive && (
+                    <div className="flex gap-3">
+                      <button onClick={startCamera}
+                        className="flex-1 py-8 rounded-xl flex flex-col items-center gap-2"
+                        style={{ background: t.inputBg, border: `1px dashed ${t.inputBorder}`, color: t.textAccent }}>
+                        <span className="text-2xl">📷</span>
+                        <span className="text-sm font-medium">Use Webcam</span>
+                      </button>
+                      <label className="flex-1 py-8 rounded-xl flex flex-col items-center gap-2 cursor-pointer"
+                        style={{ background: t.inputBg, border: `1px dashed ${t.inputBorder}`, color: t.textAccent }}>
+                        <span className="text-2xl">📁</span>
+                        <span className="text-sm font-medium">Upload Photo</span>
+                        <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden"/>
+                      </label>
+                    </div>
+                  )}
+
+                  {cameraActive && (
+                    <div>
+                      <video ref={videoRef} autoPlay playsInline
+                        className="w-full rounded-xl"
+                        style={{ background: "#000", transform: "scaleX(-1)" }}/>
+                      <div className="flex gap-3 mt-3">
+                        <button onClick={capturePhoto}
+                          className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white"
+                          style={{ background: "#2563eb" }}>
+                          📸 Capture
+                        </button>
+                        <button onClick={stopCamera}
+                          className="px-4 py-2.5 rounded-xl text-sm font-medium"
+                          style={{ background: t.inputBg, color: t.textMuted, border: `1px solid ${t.inputBorder}` }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {photoPreview && (
+                    <div>
+                      <img src={photoPreview} alt="Preview"
+                        className="w-full rounded-xl max-h-72 object-cover"/>
+                      <button onClick={retake}
+                        className="mt-3 w-full py-2 rounded-xl text-sm font-medium"
+                        style={{ background: t.inputBg, color: t.textMuted, border: `1px solid ${t.inputBorder}` }}>
+                        Retake / Choose Different Photo
+                      </button>
+                    </div>
+                  )}
+                  <canvas ref={canvasRef} className="hidden"/>
+                </div>
+
+                <button onClick={handleSubmit} disabled={submitting}
+                  className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-all"
+                  style={{ background: "#2563eb", opacity: submitting ? 0.7 : 1 }}>
+                  {submitting ? "Processing..." : `Enroll ${detectedRole.charAt(0).toUpperCase() + detectedRole.slice(1)}`}
+                </button>
+              </>
+            )}
+
+            {/* Prompt when no role detected yet */}
+            {!detectedRole && !indexNumber && (
+              <div className="text-center py-8"
+                style={{ borderTop: `1px solid ${t.cardBorder}` }}>
+                <p className="text-3xl mb-2">👆</p>
+                <p className="text-sm" style={{ color: t.textMuted }}>
+                  Fill in the identity fields above to reveal the enrollment form
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
